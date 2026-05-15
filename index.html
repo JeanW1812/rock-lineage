@@ -198,12 +198,48 @@ h1{
   color:var(--muted);width:1.5rem;text-align:right;flex-shrink:0;
   letter-spacing:.05em;
 }
+.b-thumb{
+  width:36px;height:36px;flex-shrink:0;
+  background:var(--surface2);border:1px solid var(--border2);
+  overflow:hidden;position:relative;
+}
+.b-thumb img{width:100%;height:100%;object-fit:cover;display:block;opacity:0;transition:opacity .3s;}
+.b-thumb img.loaded{opacity:1;}
+.b-thumb-ph{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-family:var(--font-d);font-size:.8rem;color:var(--muted);
+  letter-spacing:.04em;
+}
+.band-row.selected .b-thumb{border-color:var(--accent);}
 .b-dot{
   width:6px;height:6px;border-radius:50%;flex-shrink:0;
-  border:1px solid var(--muted);transition:all .12s;
+  border:1px solid var(--muted);transition:all .12s;display:none;
 }
 .band-row.selected .b-dot,.band-row:hover .b-dot{
   border-color:var(--accent);background:var(--accent);
+}
+
+/* detail cover */
+.d-cover{
+  width:100%;aspect-ratio:16/7;
+  background:var(--surface2);
+  overflow:hidden;position:relative;
+  border-bottom:1px solid var(--border2);
+}
+.d-cover img{
+  width:100%;height:100%;object-fit:cover;
+  display:block;opacity:0;transition:opacity .5s;
+  filter:brightness(0.7) contrast(1.1) saturate(0.85);
+}
+.d-cover img.loaded{opacity:1;}
+.d-cover-overlay{
+  position:absolute;inset:0;
+  background:linear-gradient(to bottom, transparent 30%, var(--surface) 100%);
+}
+.d-cover-ph{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-family:var(--font-d);font-size:4rem;color:var(--border2);
+  letter-spacing:.1em;
 }
 .b-info{flex:1;min-width:0;}
 .b-name{
@@ -761,13 +797,77 @@ let activeBand = null;
 let activeGenre = 'all';
 let activeView = 'timeline';
 
+const imgCache = {};
+
+// Wikipedia page titles for each band
+const wikiTitles = {
+  'chuck-berry':        'Chuck Berry',
+  'beach-boys':         'The Beach Boys',
+  'bob-dylan':          'Bob Dylan',
+  'velvet-underground': 'The Velvet Underground',
+  'grateful-dead':      'Grateful Dead',
+  'jefferson-airplane': 'Jefferson Airplane',
+  'beatles':            'The Beatles',
+  'rolling-stones':     'The Rolling Stones',
+  'who':                'The Who',
+  'kinks':              'The Kinks',
+  'byrds':              'The Byrds',
+  'gram-parsons':       'Gram Parsons',
+  'csny':               'Crosby, Stills, Nash & Young',
+  'neil-young':         'Neil Young',
+  'j-d-souther':        'J. D. Souther',
+  'eagles':             'Eagles (band)',
+  'fleetwood-mac':      'Fleetwood Mac',
+  'led-zeppelin':       'Led Zeppelin',
+  'aerosmith':          'Aerosmith',
+  'black-sabbath':      'Black Sabbath',
+  'deep-purple':        'Deep Purple',
+  'pink-floyd':         'Pink Floyd',
+  'yes':                'Yes (band)',
+  'genesis':            'Genesis (band)',
+  'david-bowie':        'David Bowie',
+  'queen':              'Queen (band)',
+  'iggy-pop':           'Iggy Pop',
+  'ramones':            'Ramones',
+  'sex-pistols':        'Sex Pistols',
+  'clash':              'The Clash',
+  'talking-heads':      'Talking Heads',
+  'the-cure':           'The Cure',
+  'rem':                'R.E.M.',
+  'u2':                 'U2',
+  'nirvana':            'Nirvana (band)',
+};
+
+async function loadImg(img, bandId) {
+  if (imgCache[bandId] === null) return;
+  if (imgCache[bandId]) {
+    img.src = imgCache[bandId];
+    img.onload = () => img.classList.add('loaded');
+    return;
+  }
+  const title = wikiTitles[bandId];
+  if (!title) return;
+  try {
+    const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const thumb = data?.thumbnail?.source || data?.originalimage?.source;
+    if (thumb) {
+      imgCache[bandId] = thumb;
+      img.src = thumb;
+      img.onload = () => img.classList.add('loaded');
+      img.onerror = () => { img.style.display='none'; };
+    } else {
+      imgCache[bandId] = null;
+    }
+  } catch(e) {
+    imgCache[bandId] = null;
+  }
+}
+
 function spotifyUrl(q) {
   return `https://open.spotify.com/search/${encodeURIComponent(q.replace(/\+/g,' '))}`;
 }
-
-// ═══════════════════════════════════════════════
-// TIMELINE
-// ═══════════════════════════════════════════════
 function buildTimeline() {
   const tl = document.getElementById('timeline');
   tl.innerHTML = '';
@@ -787,9 +887,13 @@ function buildTimeline() {
       globalIdx++;
       const row = document.createElement('div');
       row.className = 'band-row' + (activeBand?.id === band.id ? ' selected' : '');
+      const initials = band.name.replace(/^The\s+/i,'').split(' ').map(w=>w[0]).slice(0,2).join('');
       row.innerHTML = `
         <div class="b-num">${String(globalIdx).padStart(2,'0')}</div>
-        <div class="b-dot"></div>
+        <div class="b-thumb">
+          <div class="b-thumb-ph">${initials}</div>
+          <img alt="${band.name}" loading="lazy">
+        </div>
         <div class="b-info">
           <div class="b-name">${band.name}</div>
           <div class="b-meta">${band.formed}${band.disbanded ? '–'+band.disbanded:'–今'} &nbsp;·&nbsp; ${band.origin}</div>
@@ -798,6 +902,9 @@ function buildTimeline() {
           <div class="gtag">${band.genre.replace('Progressive Rock','Prog').replace('British Invasion','Brit Inv.').replace('Alternative','Alt.')}</div>
           ${band.connections.length ? `<div class="cbadge">${band.connections.length}</div>` : ''}
         </div>`;
+      // lazy load thumbnail
+      const thumbImg = row.querySelector('.b-thumb img');
+      loadImg(thumbImg, band.id);
       row.addEventListener('click', () => selectBand(band));
       g.appendChild(row);
     });
@@ -828,6 +935,11 @@ function detailHTML(band) {
   });
   const nameShort = band.name.replace(/^The\s+/i,'').split(' ')[0].toUpperCase();
   return `
+    <div class="d-cover" id="dcover-${band.id}">
+      <div class="d-cover-ph">${nameShort}</div>
+      <img alt="${band.name}" id="dcoverimg-${band.id}">
+      <div class="d-cover-overlay"></div>
+    </div>
     <div class="dh">
       <div class="dh-bg">${nameShort}</div>
       <div class="dg-tag">${band.genre}</div>
@@ -891,6 +1003,9 @@ function renderDetail(band) {
   dc.innerHTML = detailHTML(band);
   bindDetailEvents(dc);
   document.getElementById('detailPanel').scrollTop = 0;
+  // load cover image
+  const coverImg = document.getElementById(`dcoverimg-${band.id}`);
+  if (coverImg) loadImg(coverImg, band.id);
 }
 
 // ═══════════════════════════════════════════════
